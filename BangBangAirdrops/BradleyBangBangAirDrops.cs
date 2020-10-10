@@ -1,4 +1,5 @@
-﻿using Oxide.Core;
+﻿using Facepunch;
+using Oxide.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,9 +9,9 @@ using VLB;
 namespace Oxide.Plugins
 {
     // var drops = UnityEngine.Object.FindObjectsOfType<SupplyDrop>().ToList();
-    [Info("BangBangAirDrops", "Matta", "1.0")]
+    [Info("BradleyBangBangAirDrops", "Matta", "1.0")]
     [Description("Creates custom vehilce supply signals")]
-    public class BangBangAirDrops : RustPlugin
+    public class BradleyBangBangAirDrops : RustPlugin
     {
         private const string _minicopterPrefab = "assets/content/vehicles/minicopter/minicopter.entity.prefab";
         private const string _parachutePrefab = "assets/prefabs/misc/parachute/parachute.prefab";
@@ -18,6 +19,7 @@ namespace Oxide.Plugins
         private const string _rhibPrefab = "assets/content/vehicles/boats/rhib/rhib.prefab";
         private const string _scrapHelicopterPrefab = "assets/content/vehicles/scrap heli carrier/scraptransporthelicopter.prefab";
         private const string _cargoPlanePrefab = "assets/prefabs/npc/cargo plane/cargo_plane.prefab";
+        private const string _bradleyAPCPrefab = "assets/prefabs/npc/m2bradley/bradleyapc.prefab";
 
         private const string _heliDropName = "MINI HELI DROP";
         private const string _scrapHeliDropName = "SCRAP HELI DROP";
@@ -99,6 +101,8 @@ namespace Oxide.Plugins
                     }
                 }
             }*/
+
+            /*
             var item1 = ItemManager.CreateByName("supply.signal", 1, 0);
             if (item1 != null)
             {
@@ -118,6 +122,7 @@ namespace Oxide.Plugins
                 container.inventory.capacity++;
                 item2.MoveToContainer(container.inventory);
             }
+            */
         }
 
         /// <summary>
@@ -129,7 +134,7 @@ namespace Oxide.Plugins
         {
             // Stop the normal cargo plane
             var cargoPlane = supplySignal.GetComponent<CargoPlane>();
-            if(cargoPlane == null)
+            if (cargoPlane == null)
                 Interface.Oxide.LogDebug("Cargo plane not found");
             NextTick(() => { cargoPlane?.Kill(); });
 
@@ -153,27 +158,17 @@ namespace Oxide.Plugins
         #region Commands
 
         /// <summary>
-        /// Calls a random vehicle airdrop
+        /// Calls a mini heli vehicle airdrop
         /// </summary>
         /// <param name="player">The calling player (who ran command)</param>
         /// <param name="command">The command run</param>
         /// <param name="args">Arguments supplied after initial command</param>
-        [ChatCommand("randombbairdrop")]
-        private void CallRandomAirdrop(BasePlayer player, string command, string[] args)
+        [ChatCommand("bradleybbairdrop")]
+        private void CallBradleyAirdrop(BasePlayer player, string command, string[] args)
         {
-            try
-            {
-                // Parse argument (as enum)
-                var cargoType = (CargoType)Enum.Parse(typeof(CargoType), args.FirstOrDefault());
-
-                // Setup vehicle dropping service and call plane
-                var vehicleDroppingService = new VehicleDroppingService(cargoType);
-                vehicleDroppingService.CallPlane(player.transform.position);
-            }
-            catch (Exception ex)
-            {
-                // Log exception?
-            }
+            // Setup vehicle dropping service and call plane
+            var vehicleDroppingService = new VehicleDroppingService(CargoType.BradleyAPC);
+            vehicleDroppingService.CallPlane(player.transform.position);
         }
 
         /// <summary>
@@ -236,6 +231,92 @@ namespace Oxide.Plugins
 
         #region Helper Classes
 
+        private class APCController : MonoBehaviour
+        {
+            protected internal BradleyAPC entity { get; private set; }
+            private bool isDying = false;
+            private void Awake()
+            {
+                /*
+                var paths = UnityEngine.Object.FindObjectsOfType<TerrainPath>();
+                var allRoads = paths.Select(x => x.Roads);
+                foreach (var road in allRoads)
+                {
+                    foreach (var path in road)
+                    {
+                        var eachPathPoints = path.Path.Points;
+                    }
+                }
+                */
+
+                entity = GetComponent<BradleyAPC>();
+                entity.enabled = true;
+                entity.ClearPath();
+                entity.IsAtFinalDestination();
+                entity.searchRange = 100f;
+                entity.maxCratesToSpawn = 5;
+                entity._maxHealth = 300;
+                entity.health = 300;
+            }
+
+            private void OnDestroy()
+            {
+                //if (entity != null && !entity.IsDestroyed)
+                //    entity.Kill();
+            }
+
+            public void ManageDamage(HitInfo info)
+            {
+                if (isDying)
+                    return;
+
+                if (info.damageTypes.Total() >= entity.health)
+                {
+                    info.damageTypes = new Rust.DamageTypeList();
+                    info.HitEntity = null;
+                    info.HitMaterial = 0;
+                    info.PointStart = Vector3.zero;
+
+                    OnDeath();
+                }
+            }
+
+            private void RemoveCrate(LockedByEntCrate crate)
+            {
+                if (crate == null || (crate?.IsDestroyed ?? true))
+                {
+                    return;
+                }
+                crate.Kill();
+            }
+
+            private void OnDeath()
+            {
+                isDying = true;
+                Effect.server.Run(entity.explosionEffect.resourcePath, entity.transform.position, Vector3.up, null, true);
+
+                List<ServerGib> serverGibs = ServerGib.CreateGibs(entity.servergibs.resourcePath, entity.gameObject, entity.servergibs.Get().GetComponent<ServerGib>()._gibSource, Vector3.zero, 3f);
+
+                for (int i = 0; i < 12 - entity.maxCratesToSpawn; i++)
+                {
+                    BaseEntity fireBall = GameManager.server.CreateEntity(entity.fireBall.resourcePath, entity.transform.position, entity.transform.rotation, true);
+                    if (fireBall)
+                    {
+                        Vector3 onSphere = UnityEngine.Random.onUnitSphere;
+                        fireBall.transform.position = (entity.transform.position + new Vector3(0f, 1.5f, 0f)) + (onSphere * UnityEngine.Random.Range(-4f, 4f));
+                        Collider collider = fireBall.GetComponent<Collider>();
+                        fireBall.Spawn();
+                        fireBall.SetVelocity(Vector3.zero + (onSphere * UnityEngine.Random.Range(3, 10)));
+                        foreach (ServerGib serverGib in serverGibs)
+                            Physics.IgnoreCollision(collider, serverGib.GetCollider(), true);
+                    }
+                }
+
+                if (entity != null && !entity.IsDestroyed)
+                    entity.Kill(BaseNetworkable.DestroyMode.Gib);
+            }
+        }
+
         /// <summary>
         /// Service to create custom cargo that drops custom airdrop type
         /// </summary>
@@ -280,7 +361,7 @@ namespace Oxide.Plugins
 
                 // If we don't specify the target position, then a random position is used
                 if (targetPosition == null)
-                     targetPosition = cargoPlane.RandomDropPosition(); 
+                    targetPosition = cargoPlane.RandomDropPosition();
 
                 // Create custom cargo plane, init and set custom airdrop on position reached
                 _airbornePlane = cargoPlane.gameObject.AddComponent<SpecialAirdropPlane>();
@@ -308,13 +389,17 @@ namespace Oxide.Plugins
                     case CargoType.ScrapHeli:
                         EntityFactory.CreateScrapHelicopter(_airbornePlane.transform.position);
                         break;
-                    // Create scrap heli
+                    // Create rowing boat
                     case CargoType.Boat:
                         EntityFactory.CreateRowingBoat(_airbornePlane.transform.position);
                         break;
-                    // Create scrap heli
+                    // Create RHIB
                     case CargoType.RHIB:
                         EntityFactory.CreateRHIB(_airbornePlane.transform.position);
+                        break;
+                    // Create BradleyAPC
+                    case CargoType.BradleyAPC:
+                        EntityFactory.CreateBradelyAPC(_airbornePlane.transform.position);
                         break;
                 }
             }
@@ -376,6 +461,19 @@ namespace Oxide.Plugins
                 // Add parachute and propagate 
                 entity.GetOrAddComponent<DroppingVehicle>();
                 entity.SetFlag(BaseEntity.Flags.On, true);
+                entity.SendNetworkUpdateImmediate();
+            }
+
+            public static void CreateBradelyAPC(Vector3 position)
+            {
+                var randsphere = UnityEngine.Random.onUnitSphere;
+                var entpos = (position + new Vector3(0f, 1.5f, 0f)) + (randsphere * UnityEngine.Random.Range(-2f, 3f));
+
+                var entity = GameManager.server.CreateEntity(_bradleyAPCPrefab, entpos, Quaternion.LookRotation(randsphere), true) as BradleyAPC;
+                entity.Spawn();
+
+                entity.GetOrAddComponent<DroppingVehicle>();
+                entity.GetOrAddComponent<APCController>();
                 entity.SendNetworkUpdateImmediate();
             }
         }
@@ -597,7 +695,12 @@ namespace Oxide.Plugins
             /// <summary>
             /// To make the cargo drop a RHIB
             /// </summary>
-            RHIB = 4
+            RHIB = 4,
+
+            /// <summary>
+            /// Spawns Bradely APC
+            /// </summary>
+            BradleyAPC = 8
         }
 
         #endregion

@@ -401,6 +401,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BangBangAirDrops.cs" />
+    <Compile Include="BradleyBangBangAirDrops.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
